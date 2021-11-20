@@ -1,0 +1,97 @@
+---
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+env:
+  CACHE_REGISTRY: ghcr.io
+  CACHE_IMAGE: ${{ github.repository }}
+  CACHE_TAG: release-cache
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.CACHE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore cache
+        run: |
+          if ! docker pull "${CACHE_REGISTRY}/${CACHE_IMAGE}:${CACHE_TAG}" &>/dev/null; then
+            echo "No cache found"
+            exit 0
+          fi
+
+          tempdir=$(mktemp -d)
+          cd "${tempdir}"
+
+          echo "creating cache container filesystem"
+          # this container isn't actually started; we just gain access to its filesystem
+          # it also does not contain 'bash", but we need to provide some argument, which is ignored
+          docker create -ti --name cache_storage "${CACHE_REGISTRY}/${CACHE_IMAGE}:${CACHE_TAG}" bash
+          docker cp cache_storage:cache.tgz .
+
+          echo "expanding cache to disk"
+          tar xpzf cache.tgz -P
+
+          echo "cleaning up"
+          docker rm cache_storage &>/dev/null
+          cd -
+          rm -rf "${tempdir}"
+
+      - name: Compile
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      # ... additional release steps
+
+      - name: Save cache
+        run: |
+          tempdir=$(mktemp -d)
+          cd "${tempdir}"
+
+          paths=()
+          paths+=( "$GITHUB_WORKSPACE/target" )
+          paths+=( "/usr/share/rust/.cargo/registry/index" )
+          paths+=( "/usr/share/rust/.cargo/registry/cache" )
+          paths+=( "/usr/share/rust/.cargo/git" )
+
+          echo "building cache tarball"
+          tar --ignore-failed-read -cpzf cache.tgz "${paths[@]}" -P
+
+          cat <<-EOF > Dockerfile
+          FROM scratch
+          LABEL org.opencontainers.image.description="Release cache of ${GITHUB_REPOSITORY}"
+          COPY cache.tgz .
+          EOF
+
+          echo "building cache container image"
+          docker build --tag "${CACHE_REGISTRY}/${CACHE_IMAGE}:${CACHE_TAG}" --file Dockerfile .
+          docker push "${CACHE_REGISTRY}/${CACHE_IMAGE}:${CACHE_TAG}"
+
+          echo "cleaning up"
+          docker rmi "${CACHE_REGISTRY}/${CACHE_IMAGE}:${CACHE_TAG}"
+          cd -
+          rm -rf "${tempdir}"
