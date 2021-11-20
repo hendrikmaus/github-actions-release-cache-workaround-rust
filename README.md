@@ -1,6 +1,8 @@
 # Workaround to Cache Releases Using GitHub Actions and Packages
 
-For all the details, please see my[blog post: [GitHub Actions: How to Implement Caching For Releases (Rust as Example)](https://blog.hendrikmaus.dev/github-actions-release-caching/).
+*Please mind that I created a set of GitHub Aactions to re-use this concept in [hendrikmaus/custom-cache-action](https://github.com/hendrikmaus/custom-cache-action).*
+
+For all the details, please see my blog post: [GitHub Actions: How to Implement Caching For Releases (Rust as Example)](https://blog.hendrikmaus.dev/github-actions-release-caching/).
 
 ## Results
 
